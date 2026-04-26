@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius, FontSize } from '../theme';
-import { getJournalEntries, saveJournalEntry, deleteJournalEntry } from '../storage';
+import { getJournalEntries, saveJournalEntry, deleteJournalEntry, getMoodEntries } from '../storage';
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAY_LABELS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 const MOODS = [
   { value: 1, emoji: '😔', label: 'Very Low', color: '#BC8B7A' },
@@ -82,7 +85,7 @@ function FeelingsSelector({ selected, onToggle }) {
   );
 }
 
-function NewEntryModal({ visible, onClose, onSave }) {
+function NewEntryModal({ visible, onClose, onSave, targetDate = null }) {
   const [mood, setMood] = useState(3);
   const [feelings, setFeelings] = useState([]);
   const [otherFeeling, setOtherFeeling] = useState('');
@@ -96,9 +99,12 @@ function NewEntryModal({ visible, onClose, onSave }) {
   }, []);
 
   const handleSave = useCallback(() => {
+    const createdAt = targetDate
+      ? `${targetDate}T12:00:00.000Z`
+      : new Date().toISOString();
     const entry = {
       id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
+      createdAt,
       mood,
       feelings,
       otherFeeling: otherFeeling.trim(),
@@ -125,7 +131,9 @@ function NewEntryModal({ visible, onClose, onSave }) {
             <TouchableOpacity onPress={handleClose}>
               <Text style={styles.modalCancel}>Cancel</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>New Entry</Text>
+            <Text style={styles.modalTitle}>
+              {targetDate ? formatDate(`${targetDate}T12:00:00.000Z`) : 'New Entry'}
+            </Text>
             <TouchableOpacity onPress={handleSave}>
               <Text style={styles.modalSave}>Save</Text>
             </TouchableOpacity>
@@ -235,28 +243,174 @@ function EntryCard({ entry, onDelete }) {
   );
 }
 
+// ── Calendar ──────────────────────────────────────────────────────────────────
+
+function CalendarView({ moodByDate, journalByDate, selectedDate, onSelectDate }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [viewDate, setViewDate] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const ds = (day) => `${year}-${pad(month + 1)}-${pad(day)}`;
+
+  const canGoNext = new Date(year, month + 1, 1) <= new Date();
+
+  return (
+    <View style={styles.calendar}>
+      <View style={styles.calMonthRow}>
+        <TouchableOpacity onPress={() => setViewDate(new Date(year, month - 1, 1))} style={styles.calNavBtn}>
+          <Ionicons name="chevron-back" size={20} color={Colors.textPrimary} />
+        </TouchableOpacity>
+        <Text style={styles.calMonthLabel}>{MONTH_NAMES[month]} {year}</Text>
+        <TouchableOpacity
+          onPress={() => canGoNext && setViewDate(new Date(year, month + 1, 1))}
+          style={styles.calNavBtn}
+        >
+          <Ionicons name="chevron-forward" size={20} color={canGoNext ? Colors.textPrimary : Colors.border} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.calDayLabels}>
+        {DAY_LABELS.map((d) => <Text key={d} style={styles.calDayLabel}>{d}</Text>)}
+      </View>
+
+      <View style={styles.calGrid}>
+        {cells.map((day, i) => {
+          if (!day) return <View key={`e${i}`} style={styles.calCell} />;
+          const dateStr = ds(day);
+          const mood = moodByDate[dateStr];
+          const hasJournal = !!journalByDate[dateStr];
+          const isToday = dateStr === today;
+          const isSelected = dateStr === selectedDate;
+          return (
+            <TouchableOpacity
+              key={dateStr}
+              style={[styles.calCell, isSelected && styles.calCellSelected, isToday && styles.calCellToday]}
+              onPress={() => onSelectDate(isSelected ? null : dateStr)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.calDayNum, isSelected && styles.calDayNumSelected, isToday && !isSelected && styles.calDayNumToday]}>
+                {day}
+              </Text>
+              <View style={styles.calDots}>
+                {mood ? <View style={[styles.calDot, { backgroundColor: MOODS[mood - 1].color }]} /> : null}
+                {hasJournal ? <View style={[styles.calDot, { backgroundColor: Colors.sageLight }]} /> : null}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <View style={styles.calLegend}>
+        <View style={styles.calLegendItem}>
+          <View style={[styles.calDot, { backgroundColor: '#7EC8A4' }]} />
+          <Text style={styles.calLegendText}>Mood check-in</Text>
+        </View>
+        <View style={styles.calLegendItem}>
+          <View style={[styles.calDot, { backgroundColor: Colors.sageLight }]} />
+          <Text style={styles.calLegendText}>Journal entry</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function DayPanel({ dateStr, moodByDate, journalByDate, onAddEntry, onDeleteEntry }) {
+  const mood = moodByDate[dateStr] ? MOODS[moodByDate[dateStr] - 1] : null;
+  const dayEntries = journalByDate[dateStr] || [];
+  const label = formatDate(`${dateStr}T12:00:00.000Z`);
+
+  return (
+    <View style={styles.dayPanel}>
+      <Text style={styles.dayPanelTitle}>{label}</Text>
+
+      <View style={styles.dayPanelMood}>
+        <Ionicons name="sunny-outline" size={14} color={Colors.textTertiary} />
+        <Text style={styles.dayPanelMoodLabel}>
+          {mood ? `${mood.emoji} ${mood.label}` : 'No mood check-in'}
+        </Text>
+      </View>
+
+      {dayEntries.length > 0 && dayEntries.map((e) => (
+        <View key={e.id} style={styles.dayPanelEntry}>
+          <Text style={styles.dayPanelEntryText} numberOfLines={2}>{e.note || e.feelings.join(', ') || 'Entry'}</Text>
+          <TouchableOpacity onPress={() => onDeleteEntry(e.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="trash-outline" size={16} color={Colors.textTertiary} />
+          </TouchableOpacity>
+        </View>
+      ))}
+
+      <TouchableOpacity style={styles.dayPanelAddBtn} onPress={onAddEntry} activeOpacity={0.8}>
+        <Ionicons name="add" size={16} color={Colors.sage} />
+        <Text style={styles.dayPanelAddText}>Write entry for this day</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ── Screen ────────────────────────────────────────────────────────────────────
+
 export default function JournalScreen() {
   const [entries, setEntries] = useState([]);
+  const [moodEntries, setMoodEntries] = useState([]);
   const [showModal, setShowModal] = useState(false);
+  const [view, setView] = useState('list');
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [modalTargetDate, setModalTargetDate] = useState(null);
 
   const loadEntries = useCallback(async () => {
-    const data = await getJournalEntries();
-    setEntries(data);
+    const [journal, mood] = await Promise.all([getJournalEntries(), getMoodEntries()]);
+    setEntries(journal);
+    setMoodEntries(mood);
   }, []);
 
   useEffect(() => {
     loadEntries();
   }, [loadEntries]);
 
+  const moodByDate = useMemo(() => {
+    const map = {};
+    moodEntries.forEach((e) => { map[e.date] = e.value; });
+    return map;
+  }, [moodEntries]);
+
+  const journalByDate = useMemo(() => {
+    const map = {};
+    entries.forEach((e) => {
+      const d = e.createdAt.slice(0, 10);
+      if (!map[d]) map[d] = [];
+      map[d].push(e);
+    });
+    return map;
+  }, [entries]);
+
   const handleSave = useCallback(async (entry) => {
     await saveJournalEntry(entry);
-    setEntries((prev) => [entry, ...prev]);
+    setEntries((prev) => [entry, ...prev].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     setShowModal(false);
+    setModalTargetDate(null);
   }, []);
 
   const handleDelete = useCallback(async (id) => {
     await deleteJournalEntry(id);
     setEntries((prev) => prev.filter((e) => e.id !== id));
+  }, []);
+
+  const openModalForDate = useCallback((dateStr) => {
+    setModalTargetDate(dateStr);
+    setShowModal(true);
   }, []);
 
   return (
@@ -277,7 +431,43 @@ export default function JournalScreen() {
         </TouchableOpacity>
       </View>
 
-      {entries.length === 0 ? (
+      {/* View toggle */}
+      <View style={styles.viewToggle}>
+        <TouchableOpacity
+          style={[styles.viewToggleBtn, view === 'list' && styles.viewToggleBtnActive]}
+          onPress={() => setView('list')}
+        >
+          <Ionicons name="list" size={16} color={view === 'list' ? Colors.white : Colors.textTertiary} />
+          <Text style={[styles.viewToggleText, view === 'list' && styles.viewToggleTextActive]}>List</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.viewToggleBtn, view === 'calendar' && styles.viewToggleBtnActive]}
+          onPress={() => setView('calendar')}
+        >
+          <Ionicons name="calendar" size={16} color={view === 'calendar' ? Colors.white : Colors.textTertiary} />
+          <Text style={[styles.viewToggleText, view === 'calendar' && styles.viewToggleTextActive]}>Calendar</Text>
+        </TouchableOpacity>
+      </View>
+
+      {view === 'calendar' ? (
+        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+          <CalendarView
+            moodByDate={moodByDate}
+            journalByDate={journalByDate}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+          />
+          {selectedDate && (
+            <DayPanel
+              dateStr={selectedDate}
+              moodByDate={moodByDate}
+              journalByDate={journalByDate}
+              onAddEntry={() => openModalForDate(selectedDate)}
+              onDeleteEntry={handleDelete}
+            />
+          )}
+        </ScrollView>
+      ) : entries.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyEmoji}>📔</Text>
           <Text style={styles.emptyTitle}>No entries yet</Text>
@@ -285,11 +475,7 @@ export default function JournalScreen() {
             Writing about your feelings — even just a few words — can help you understand
             and process them.
           </Text>
-          <TouchableOpacity
-            style={styles.emptyBtn}
-            onPress={() => setShowModal(true)}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowModal(true)} activeOpacity={0.8}>
             <Text style={styles.emptyBtnText}>Write your first entry</Text>
           </TouchableOpacity>
         </View>
@@ -305,8 +491,9 @@ export default function JournalScreen() {
 
       <NewEntryModal
         visible={showModal}
-        onClose={() => setShowModal(false)}
+        onClose={() => { setShowModal(false); setModalTargetDate(null); }}
         onSave={handleSave}
+        targetDate={modalTargetDate}
       />
     </SafeAreaView>
   );
@@ -347,6 +534,76 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  viewToggle: {
+    flexDirection: 'row',
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.round,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  viewToggleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    borderRadius: Radius.round,
+  },
+  viewToggleBtnActive: { backgroundColor: Colors.sage },
+  viewToggleText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textTertiary },
+  viewToggleTextActive: { color: Colors.white },
+  // Calendar
+  calendar: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  calMonthRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md },
+  calNavBtn: { padding: 4 },
+  calMonthLabel: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
+  calDayLabels: { flexDirection: 'row', marginBottom: 4 },
+  calDayLabel: { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '600', color: Colors.textTertiary },
+  calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calCell: { width: '14.28%', alignItems: 'center', paddingVertical: 5, borderRadius: 6 },
+  calCellToday: { backgroundColor: Colors.sagePale },
+  calCellSelected: { backgroundColor: Colors.sage },
+  calDayNum: { fontSize: FontSize.sm, color: Colors.textPrimary, fontWeight: '500' },
+  calDayNumToday: { color: Colors.sageDark, fontWeight: '700' },
+  calDayNumSelected: { color: Colors.white, fontWeight: '700' },
+  calDots: { flexDirection: 'row', gap: 2, marginTop: 2, height: 6 },
+  calDot: { width: 5, height: 5, borderRadius: 3 },
+  calLegend: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.md, justifyContent: 'center' },
+  calLegendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  calLegendText: { fontSize: 11, color: Colors.textTertiary },
+  // Day panel
+  dayPanel: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.sage,
+  },
+  dayPanelTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.xs },
+  dayPanelMood: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: Spacing.sm },
+  dayPanelMoodLabel: { fontSize: FontSize.sm, color: Colors.textSecondary },
+  dayPanelEntry: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    paddingVertical: Spacing.xs, borderTopWidth: 1, borderTopColor: Colors.border,
+  },
+  dayPanelEntryText: { flex: 1, fontSize: FontSize.sm, color: Colors.textPrimary },
+  dayPanelAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: Spacing.sm },
+  dayPanelAddText: { fontSize: FontSize.sm, color: Colors.sage, fontWeight: '600' },
   list: {
     padding: Spacing.md,
     paddingBottom: Spacing.xxl,
