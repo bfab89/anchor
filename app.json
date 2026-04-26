@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Anchor",
+    "slug": "anchor",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#6B8F71"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anchor.mentalhealth"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6B8F71"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.anchor.mentalhealth"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
