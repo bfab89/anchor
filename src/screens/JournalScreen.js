@@ -85,11 +85,13 @@ function FeelingsSelector({ selected, onToggle }) {
 function NewEntryModal({ visible, onClose, onSave }) {
   const [mood, setMood] = useState(3);
   const [feelings, setFeelings] = useState([]);
+  const [otherFeeling, setOtherFeeling] = useState('');
   const [note, setNote] = useState('');
 
   const resetForm = useCallback(() => {
     setMood(3);
     setFeelings([]);
+    setOtherFeeling('');
     setNote('');
   }, []);
 
@@ -99,11 +101,12 @@ function NewEntryModal({ visible, onClose, onSave }) {
       createdAt: new Date().toISOString(),
       mood,
       feelings,
+      otherFeeling: otherFeeling.trim(),
       note: note.trim(),
     };
     onSave(entry);
     resetForm();
-  }, [mood, feelings, note, onSave, resetForm]);
+  }, [mood, feelings, otherFeeling, note, onSave, resetForm]);
 
   const handleClose = useCallback(() => {
     resetForm();
@@ -134,6 +137,16 @@ function NewEntryModal({ visible, onClose, onSave }) {
 
             <Text style={styles.fieldLabel}>Select all that apply</Text>
             <FeelingsSelector selected={feelings} onToggle={toggleFeeling} />
+
+            <Text style={styles.fieldLabel}>Other (write your own)</Text>
+            <TextInput
+              style={styles.otherInput}
+              value={otherFeeling}
+              onChangeText={setOtherFeeling}
+              placeholder="e.g. Nostalgic, Restless, Numb..."
+              placeholderTextColor={Colors.textTertiary}
+              maxLength={40}
+            />
 
             <Text style={styles.fieldLabel}>Write about it (optional)</Text>
             <TextInput
@@ -193,7 +206,7 @@ function EntryCard({ entry, onDelete }) {
         />
       </View>
 
-      {entry.feelings.length > 0 && (
+      {(entry.feelings.length > 0 || entry.otherFeeling) && (
         <View style={styles.entryFeelings}>
           {entry.feelings.slice(0, expanded ? undefined : 3).map((f) => (
             <View key={f} style={styles.feelingTagSmall}>
@@ -203,6 +216,11 @@ function EntryCard({ entry, onDelete }) {
           {!expanded && entry.feelings.length > 3 && (
             <Text style={styles.moreText}>+{entry.feelings.length - 3}</Text>
           )}
+          {entry.otherFeeling ? (
+            <View style={[styles.feelingTagSmall, styles.feelingTagOther]}>
+              <Text style={styles.feelingTagSmallText}>{entry.otherFeeling}</Text>
+            </View>
+          ) : null}
         </View>
       )}
 
@@ -531,6 +549,18 @@ const styles = StyleSheet.create({
   feelingTextSelected: {
     color: Colors.sageDark,
     fontWeight: '600',
+  },
+  feelingTagOther: {
+    backgroundColor: Colors.border,
+  },
+  otherInput: {
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    padding: Spacing.sm,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+    height: 44,
   },
   noteInput: {
     borderWidth: 1.5,
