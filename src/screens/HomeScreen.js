@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -99,7 +100,11 @@ export default function HomeScreen({ navigation }) {
           <View>
             <Text style={styles.greeting}>{getGreeting()}</Text>
             <View style={styles.brandRow}>
-              <Text style={styles.brandIcon}>⚓</Text>
+              <Image
+                source={require('../../assets/anchor-logo.png')}
+                style={styles.brandLogo}
+                resizeMode="contain"
+              />
               <Text style={styles.brandName}>Anchor</Text>
             </View>
           </View>
@@ -206,8 +211,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  brandIcon: {
-    fontSize: 22,
+  brandLogo: {
+    width: 30,
+    height: 30,
   },
   brandName: {
     fontSize: FontSize.xl,
